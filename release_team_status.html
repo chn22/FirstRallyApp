@@ -415,7 +415,10 @@ Ext.define('CustomApp', {
 
 		if (app.tree)
 			app.tree.destroy();
-
+		app.myTree = {
+			"text": ".",
+			children: []
+		};
 //		console.log("release", app.dropDown.getRecord());
 		if (app.dropDown.getRecord() === null) {
 			var releaseName = "";
@@ -432,8 +435,8 @@ Ext.define('CustomApp', {
 					"project":		task.get("Project") ? task.get("Project")._refObjectName : "none",
 					"iteration":	task.get("Iteration") ? task.get("Iteration")._refObjectName : "none",
 					"task":			task.get("Name") ? task.get("Name") : "none",
-					"estimate":		task.get("Estimate") ? task.get("Estimate") : 0,
-					"todo":			task.get("ToDo") ? task.get("ToDo") : 0,
+					"estimate":		task.get("PlanEstimate") ? task.get("PlanEstimate") : 0,
+					"todo":			task.get("ScheduleState") === "Completed" || task.get("ScheduleState") === "Accepted"? 0: task.get("PlanEstimate"),
 					"actuals":		task.get("Actuals") ? task.get("Actuals") : 0,
 					leaf: true
 				};
@@ -464,12 +467,20 @@ Ext.define('CustomApp', {
     				
     				project.getCollection('TeamMembers').load({
     					callback: function(members, operation, success) {
-    						_.each(members, function(member) {
+    						// adding 'none' for tasks with no owner
+    						var noneMember = _.cloneDeep(members[0]);
+    						noneMember.data._refObjectName = "none";
+    						noneMember.data._ref = null;
+    						members.push(noneMember);
+    						_.each(members, function(member, index) {
+    						//console.log(index, member.data._refObjectName);
     							var mRec = {
-    								user: member.get("_refObjectName"),
+    								user: member.data._refObjectName,
     								children: []
     							};
     		    				_.each(iterations, function(iteration) {
+    		    					//console.log("iteration get _ref", iteration.get("_ref"), "iteration get _refObjectName", iteration.get("_refObjectName"));
+    		    					console.log("member.data._ref", member.data._ref, "member.data._refObjectName", member.data._refObjectName);
     		    					var iRec;
     		    					// get capacity for each member and each iteration
     		    					Ext.create('Rally.data.wsapi.Store', {
@@ -482,29 +493,39 @@ Ext.define('CustomApp', {
     		    						}, {
     		    							property: "User",
     		    							operator: "=",
-    		    							value: member.get("_ref")
+    		    							value: member.data._ref
     		    						}],
     		    			            listeners: {
     		    			                load: function(store, capacities) {
     		    			                	var capacity = capacities[0] != null? capacities[0].get("Capacity") : 0;
     		    			                	//console.log(project.get("Name"), iteration.get("Name"), member.get("FirstName"), capacity);
     		    			                	// get tasks for each member and each iteration
-    		    		    					Ext.create('Rally.data.wsapi.Store', {
-    		    		    			            model: 'Task',
-    		    		    			            autoLoad: true,
-    		    		    			            filters: [{
-    		    		    							property: "Iteration",
-    		    		    							operator: "=",
-    		    		    							value: iteration.get("_ref")
-    		    		    						}, {
+    		    			                	var dFilter =[{
+		    		    							property: "Iteration",
+		    		    							operator: "=",
+		    		    							value: iteration.get("_ref")
+		    		    						}, {
+		    		    							property: "Project",
+		    		    							operator: "=",
+		    		    							value: project.get("_ref")
+		    		    						}];
+    		    			                	if(member.data._ref != null){
+    		    			                		dFilter.push({
     		    		    							property: "Owner",
     		    		    							operator: "=",
-    		    		    							value: member.get("_ref")
-    		    		    						}, {
-    		    		    							property: "Project",
+    		    		    							value: member.data._ref
+    		    		    						});
+    		    			                	}else{
+    		    			                		dFilter.push({
+    		    		    							property: "Owner",
     		    		    							operator: "=",
-    		    		    							value: project.get("_ref")
-    		    		    						}],
+    		    		    							value: null
+    		    		    						});
+    		    			                	}
+    		    		    					Ext.create('Rally.data.wsapi.Store', {
+    		    		    			            model: 'HierarchicalRequirement',
+    		    		    			            autoLoad: true,
+    		    		    			            filters: dFilter,
     		    		    			            listeners: {
     		    		    			                load: function(store, tasks) {
     		    		    			                	var taskList = extractTasks(tasks);
@@ -742,7 +763,7 @@ Ext.define('CustomApp', {
 		};
 		// use the traverse function to sum by level
 		traverse(app.myTree).forEach(function(x) {
-			// console.log("x",x,this.level,this.parent ?this.parent.level:"");
+			 console.log("x",x,this.level,this.parent ?this.parent.level:"");
 			if (this.level === 8 ||this.level === 6 || this.level === 4 || this.level === 2) {
 				sumLevelForKey(x, "estimate");
 				sumLevelForKey(x, "todo");
@@ -807,14 +828,12 @@ Ext.define('CustomApp', {
 				sortable: true,
 				dataIndex: 'user',
 				width: 200
-			}
-			/* , {
-				text: 'Task',
+			}, {
+				text: 'Story',
 				flex: 1.5,
 				dataIndex: 'task',
 				sortable: true
-			} */
-			, {
+			}, {
 				text: 'Progress',
 				flex: 1,
 				xtype: 'templatecolumn',
